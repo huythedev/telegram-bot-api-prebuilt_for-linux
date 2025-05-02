@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     wget \
     perl \
     build-essential \
+    libstdc++-11-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set clang as default compiler
@@ -26,11 +27,14 @@ RUN wget https://zlib.net/fossils/zlib-1.3.tar.gz \
     && cd .. \
     && rm -rf zlib-1.3 zlib-1.3.tar.gz
 
+# Debug: Verify zlib
+RUN ls -l /usr/local/lib/libz.a || echo "zlib library missing"
+
 # Build openssl statically
 RUN wget https://github.com/openssl/openssl/releases/download/openssl-3.4.1/openssl-3.4.1.tar.gz \
     && tar -xzf openssl-3.4.1.tar.gz \
     && cd openssl-3.4.1 \
-    && ./config no-shared --prefix=/usr/local --openssldir=/usr/local/ssl \
+    && ./Configure no-shared --prefix=/usr/local --openssldir=/usr/local/ssl linux-x86_64 \
     && make -j$(nproc) \
     && make install_sw \
     && cd .. \
@@ -47,23 +51,10 @@ RUN git clone --recursive https://github.com/tdlib/telegram-bot-api.git /telegra
     && sed -i 's|td/db/KeyValueSyncInterface.h|tddb/td/db/KeyValueSyncInterface.h|' telegram-bot-api/ClientParameters.h \
     && mkdir build \
     && cd build \
-    && CXXFLAGS="-static -I/telegram-bot-api/telegram-bot-api/td" \
-       LDFLAGS="-static -L/usr/local/lib" \
-       CC=/usr/bin/clang \
-       CXX=/usr/bin/clang++ \
-       cmake -DCMAKE_BUILD_TYPE=Release \
+    && cmake -DCMAKE_BUILD_TYPE=Release \
              -DCMAKE_INSTALL_PREFIX:PATH=.. \
              -DBUILD_SHARED_LIBS=OFF \
-             -DCMAKE_EXE_LINKER_FLAGS="-static -L/usr/local/lib" \
              -DOPENSSL_USE_STATIC_LIBS=ON \
-             -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
-             -DOPENSSL_ROOT_DIR=/usr/local \
-             -DOPENSSL_INCLUDE_DIR=/usr/local/include \
-             -DOPENSSL_LIBRARIES="/usr/local/lib/libssl.a;/usr/local/lib/libcrypto.a" \
-             -DOPENSSL_CRYPTO_LIBRARY=/usr/local/lib/libcrypto.a \
-             -DOPENSSL_SSL_LIBRARY=/usr/local/lib/libssl.a \
-             -DZLIB_ROOT=/usr/local \
-             -DZLIB_INCLUDE_DIR=/usr/local/include \
-             -DZLIB_LIBRARY=/usr/local/lib/libz.a \
+             -DZLIB_USE_STATIC_LIBS=ON \
              .. \
     && cmake --build . --target install -j$(nproc)
