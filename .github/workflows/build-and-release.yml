@@ -2,7 +2,7 @@ name: Build and Release Telegram Bot API Binary
 
 on:
   schedule:
-    - cron: '0 0 * * 0' # Run weekly on Sunday at 00:00 UTC
+    - cron: '0 0 * * *' # Run at 00:00 UTC daily
   workflow_dispatch: # Allow manual trigger
   repository_dispatch:
     types: [upstream_update] # Trigger on upstream updates
