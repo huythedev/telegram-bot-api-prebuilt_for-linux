@@ -36,12 +36,24 @@ RUN wget https://github.com/openssl/openssl/releases/download/openssl-3.4.1/open
     && cd openssl-3.4.1 \
     && ./config no-shared --prefix=/usr/local --openssldir=/usr/local/ssl \
     && make -j$(nproc) \
-    && make install \
+    && make install_sw install_ssldirs \
     && cd .. \
     && rm -rf openssl-3.4.1 openssl-3.4.1.tar.gz
 
-# Debug: Verify OpenSSL libraries
-RUN ls -l /usr/local/lib/libssl.a /usr/local/lib/libcrypto.a || echo "OpenSSL libraries missing"
+# Debug: Search for OpenSSL libraries
+RUN echo "Listing /usr/local/lib:" \
+    && ls -l /usr/local/lib/ || echo "No /usr/local/lib directory" \
+    && echo "Listing /usr/lib:" \
+    && ls -l /usr/lib/ || echo "No /usr/lib directory" \
+    && echo "Searching for libssl.a and libcrypto.a:" \
+    && find /usr -name "libssl.a" -o -name "libcrypto.a" || echo "No OpenSSL static libraries found" \
+    && echo "Checking OpenSSL version:" \
+    && /usr/local/bin/openssl version || echo "OpenSSL binary not found"
+
+# Debug: Verify OpenSSL libraries in expected location
+RUN ls -l /usr/local/lib/libssl.a /usr/local/lib/libcrypto.a || echo "OpenSSL libraries missing in /usr/local/lib"
+
+# Debug: Test OpenSSL static linking
 RUN echo 'int main() { return 0; }' > test.c \
     && clang-14 -static -o test test.c -L/usr/local/lib -lssl -lcrypto -lz \
     && rm test.c test || echo "OpenSSL static linking test failed"
