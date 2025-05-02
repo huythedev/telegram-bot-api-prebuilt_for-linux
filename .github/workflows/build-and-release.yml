@@ -1,0 +1,87 @@
+name: Build and Release Telegram Bot API Binary
+
+on:
+  schedule:
+    - cron: '0 0 * * 0' # Run weekly on Sunday at 00:00 UTC
+  workflow_dispatch: # Allow manual trigger
+  repository_dispatch:
+    types: [upstream_update] # Trigger on upstream updates
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check for upstream updates
+        id: check
+        run: |
+          # Get the latest commit from tdlib/telegram-bot-api
+          UPSTREAM_COMMIT=$(curl -s https://api.github.com/repos/tdlib/telegram-bot-api/commits/master | jq -r .sha)
+          echo "Latest upstream commit: $UPSTREAM_COMMIT"
+
+          # Get the last known commit
+          LAST_COMMIT=$(cat .last_commit 2>/dev/null || echo "none")
+          echo "Last known commit: $LAST_COMMIT"
+
+          # Compare commits
+          if [ "$LAST_COMMIT" != "$UPSTREAM_COMMIT" ]; then
+            echo "New upstream commit detected"
+            echo "has_new_commit=true" >> $GITHUB_OUTPUT
+            echo "commit_sha=$UPSTREAM_COMMIT" >> $GITHUB_OUTPUT
+            echo "$UPSTREAM_COMMIT" > .last_commit
+          else
+            echo "No new upstream commit"
+            echo "has_new_commit=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit last commit hash
+        if: steps.check.outputs.has_new_commit == 'true'
+        run: |
+          git config user.name "GitHub Action"
+          git config user.email "action@github.com"
+          git add .last_commit
+          git commit -m "Update last known upstream commit"
+          git push
+
+      - name: Set up Docker Buildx
+        if: steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build telegram-bot-api binary
+        if: steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          docker build -t telegram-bot-api-prebuilt_for-linux \
+            --build-arg TELEGRAM_API_REF=${{ steps.check.outputs.commit_sha || 'master' }} \
+            -f Dockerfile .
+          docker create --name temp-container telegram-bot-api-prebuilt_for-linux
+          docker cp temp-container:/telegram-bot-api/bin/telegram-bot-api ./telegram-bot-api
+          docker rm temp-container
+
+      - name: Verify binary
+        if: steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch'
+        run: |
+          file telegram-bot-api
+          # Expected: ELF 64-bit LSB executable, x86_64, ... statically linked
+
+      - name: Create or update release
+        if: steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest telegram-bot-api Binary
+          body: |
+            Statically linked telegram-bot-api binary for x86_64 Linux.
+            Built from commit: ${{ steps.check.outputs.commit_sha || 'master' }}
+            Compatible with Linux kernels ≥3.2.0.
+          files: telegram-bot-api
+          prerelease: false
+          draft: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify on success
+        if: success() && (steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch')
+        run: |
+          echo "Successfully built and released telegram-bot-api binary for commit ${{ steps.check.outputs.commit_sha || 'master' }}"
