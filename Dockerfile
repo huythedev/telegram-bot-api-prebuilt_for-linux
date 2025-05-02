@@ -1,17 +1,16 @@
-FROM alpine:3.18
+FROM ubuntu:22.04
 
 # Install build tools and dependencies
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     clang \
-    llvm \
     cmake \
     make \
     git \
     gperf \
     wget \
     perl \
-    musl-dev \
-    linux-headers
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set clang as default compiler
 ENV CC=/usr/bin/clang
@@ -33,9 +32,12 @@ RUN wget https://github.com/openssl/openssl/releases/download/openssl-3.4.1/open
     && cd openssl-3.4.1 \
     && ./config no-shared --prefix=/usr/local --openssldir=/usr/local/ssl \
     && make -j$(nproc) \
-    && make install \
+    && make install_sw \
     && cd .. \
     && rm -rf openssl-3.4.1 openssl-3.4.1.tar.gz
+
+# Debug: Verify OpenSSL libraries
+RUN ls -l /usr/local/lib/libssl.a /usr/local/lib/libcrypto.a || echo "OpenSSL libraries missing"
 
 # Clone telegram-bot-api and build statically
 ARG TELEGRAM_API_REF=master

@@ -10,6 +10,7 @@ on:
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 30 # Increased timeout for build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -52,10 +53,10 @@ jobs:
       - name: Build telegram-bot-api binary
         if: steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch'
         run: |
-          docker build -t telegram-bot-api-prebuilt_for-linux \
+          docker build -t telegram-bot-api-builder \
             --build-arg TELEGRAM_API_REF=${{ steps.check.outputs.commit_sha || 'master' }} \
             -f Dockerfile .
-          docker create --name temp-container telegram-bot-api-prebuilt_for-linux
+          docker create --name temp-container telegram-bot-api-builder
           docker cp temp-container:/telegram-bot-api/bin/telegram-bot-api ./telegram-bot-api
           docker rm temp-container
 
