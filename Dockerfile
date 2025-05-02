@@ -43,6 +43,8 @@ RUN wget https://github.com/openssl/openssl/releases/download/openssl-3.4.1/open
 # Debug: Search for OpenSSL libraries
 RUN echo "Listing /usr/local/lib:" \
     && ls -l /usr/local/lib/ || echo "No /usr/local/lib directory" \
+    && echo "Listing /usr/local/lib64:" \
+    && ls -l /usr/local/lib64/ || echo "No /usr/local/lib64 directory" \
     && echo "Listing /usr/lib:" \
     && ls -l /usr/lib/ || echo "No /usr/lib directory" \
     && echo "Searching for libssl.a and libcrypto.a:" \
@@ -51,11 +53,11 @@ RUN echo "Listing /usr/local/lib:" \
     && /usr/local/bin/openssl version || echo "OpenSSL binary not found"
 
 # Debug: Verify OpenSSL libraries in expected location
-RUN ls -l /usr/local/lib/libssl.a /usr/local/lib/libcrypto.a || echo "OpenSSL libraries missing in /usr/local/lib"
+RUN ls -l /usr/local/lib64/libssl.a /usr/local/lib64/libcrypto.a || echo "OpenSSL libraries missing in /usr/local/lib64"
 
 # Debug: Test OpenSSL static linking
 RUN echo 'int main() { return 0; }' > test.c \
-    && clang-14 -static -o test test.c -L/usr/local/lib -lssl -lcrypto -lz \
+    && clang-14 -static -o test test.c -L/usr/local/lib64 -lssl -lcrypto -lz \
     && rm test.c test || echo "OpenSSL static linking test failed"
 
 # Clone telegram-bot-api and build statically
@@ -70,15 +72,15 @@ RUN git clone --recursive https://github.com/tdlib/telegram-bot-api.git /telegra
     && cmake -DCMAKE_BUILD_TYPE=Release \
              -DCMAKE_INSTALL_PREFIX:PATH=.. \
              -DBUILD_SHARED_LIBS=OFF \
-             -DCMAKE_EXE_LINKER_FLAGS="-static -L/usr/local/lib -lstdc++" \
+             -DCMAKE_EXE_LINKER_FLAGS="-static -L/usr/local/lib64 -lstdc++" \
              -DCMAKE_CXX_FLAGS="-static -I/telegram-bot-api/td" \
              -DOPENSSL_USE_STATIC_LIBS=ON \
              -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
              -DOPENSSL_ROOT_DIR=/usr/local \
              -DOPENSSL_INCLUDE_DIR=/usr/local/include \
-             -DOPENSSL_LIBRARIES="/usr/local/lib/libssl.a;/usr/local/lib/libcrypto.a" \
-             -DOPENSSL_CRYPTO_LIBRARY=/usr/local/lib/libcrypto.a \
-             -DOPENSSL_SSL_LIBRARY=/usr/local/lib/libssl.a \
+             -DOPENSSL_LIBRARIES="/usr/local/lib64/libssl.a;/usr/local/lib64/libcrypto.a" \
+             -DOPENSSL_CRYPTO_LIBRARY=/usr/local/lib64/libcrypto.a \
+             -DOPENSSL_SSL_LIBRARY=/usr/local/lib64/libssl.a \
              -DZLIB_ROOT=/usr/local \
              -DZLIB_INCLUDE_DIR=/usr/local/include \
              -DZLIB_LIBRARY=/usr/local/lib/libz.a \
