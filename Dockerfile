@@ -34,9 +34,9 @@ RUN ls -l /usr/local/lib/libz.a || echo "zlib library missing"
 RUN wget https://github.com/openssl/openssl/releases/download/openssl-3.4.1/openssl-3.4.1.tar.gz \
     && tar -xzf openssl-3.4.1.tar.gz \
     && cd openssl-3.4.1 \
-    && ./Configure no-shared --prefix=/usr/local --openssldir=/usr/local/ssl linux-x86_64 \
+    && ./config no-shared --prefix=/usr/local --openssldir=/usr/local/ssl \
     && make -j$(nproc) \
-    && make install_sw \
+    && make install \
     && cd .. \
     && rm -rf openssl-3.4.1 openssl-3.4.1.tar.gz
 
@@ -54,7 +54,16 @@ RUN git clone --recursive https://github.com/tdlib/telegram-bot-api.git /telegra
     && cmake -DCMAKE_BUILD_TYPE=Release \
              -DCMAKE_INSTALL_PREFIX:PATH=.. \
              -DBUILD_SHARED_LIBS=OFF \
+             -DCMAKE_EXE_LINKER_FLAGS="-static -L/usr/local/lib" \
              -DOPENSSL_USE_STATIC_LIBS=ON \
-             -DZLIB_USE_STATIC_LIBS=ON \
+             -DCMAKE_FIND_LIBRARY_SUFFIXES=".a" \
+             -DOPENSSL_ROOT_DIR=/usr/local \
+             -DOPENSSL_INCLUDE_DIR=/usr/local/include \
+             -DOPENSSL_LIBRARIES="/usr/local/lib/libssl.a;/usr/local/lib/libcrypto.a" \
+             -DOPENSSL_CRYPTO_LIBRARY=/usr/local/lib/libcrypto.a \
+             -DOPENSSL_SSL_LIBRARY=/usr/local/lib/libssl.a \
+             -DZLIB_ROOT=/usr/local \
+             -DZLIB_INCLUDE_DIR=/usr/local/include \
+             -DZLIB_LIBRARY=/usr/local/lib/libz.a \
              .. \
     && cmake --build . --target install -j$(nproc)
