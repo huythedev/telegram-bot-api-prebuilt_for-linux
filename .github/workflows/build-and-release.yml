@@ -1,36 +1,39 @@
-name: Build and Release Telegram Bot API for macOS (Native)
+name: Build and Release Telegram Bot API Binary
 
 on:
   schedule:
-    - cron: '0 0 * * *' # Run daily at 00:00 UTC
+    - cron: '0 0 * * *' # Run at 00:00 UTC daily
   workflow_dispatch: # Allow manual trigger
   repository_dispatch:
     types: [upstream_update] # Trigger on upstream updates
 
 jobs:
-  build:
-    runs-on: macos-latest
-    strategy:
-      matrix:
-        arch: [arm64, x86_64]
+  build-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30 # Increased timeout for build
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          persist-credentials: true # Ensure GITHUB_TOKEN for push
 
       - name: Check for upstream updates
         id: check
         run: |
+          # Get the latest commit from tdlib/telegram-bot-api
           UPSTREAM_COMMIT=$(curl -s https://api.github.com/repos/tdlib/telegram-bot-api/commits/master | jq -r .sha)
           echo "Latest upstream commit: $UPSTREAM_COMMIT"
+
+          # Get the last known commit
           LAST_COMMIT=$(cat .last_commit 2>/dev/null || echo "none")
           echo "Last known commit: $LAST_COMMIT"
+
+          # Compare commits
           if [ "$LAST_COMMIT" != "$UPSTREAM_COMMIT" ]; then
+            echo "New upstream commit detected"
             echo "has_new_commit=true" >> $GITHUB_OUTPUT
             echo "commit_sha=$UPSTREAM_COMMIT" >> $GITHUB_OUTPUT
             echo "$UPSTREAM_COMMIT" > .last_commit
           else
+            echo "No new upstream commit"
             echo "has_new_commit=false" >> $GITHUB_OUTPUT
           fi
 
@@ -43,148 +46,48 @@ jobs:
           git commit -m "Update last known upstream commit"
           git push
 
-      - name: Prepare Homebrew directories
+      - name: Set up Docker Buildx
+        if: steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build telegram-bot-api binary
         if: steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch'
         run: |
-          mkdir -p /opt/homebrew
-          mkdir -p /usr/local
-          chmod -R u+w /opt/homebrew /usr/local
+          docker build -t telegram-bot-api-builder \
+            --build-arg TELEGRAM_API_REF=${{ steps.check.outputs.commit_sha || 'master' }} \
+            -f Dockerfile .
+          docker create --name temp-container telegram-bot-api-builder
+          docker cp temp-container:/telegram-bot-api/bin/telegram-bot-api ./telegram-bot-api
+          docker rm temp-container
 
-      - name: Install Homebrew (arm64)
+      - name: Verify binary
         if: steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch'
-        env:
-          HOMEBREW_NO_INSTALL_CLEANUP: 1
-          NONINTERACTIVE: 1
         run: |
-          /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          echo "/opt/homebrew/bin:/opt/homebrew/sbin" >> $GITHUB_PATH
-          eval "$(/opt/homebrew/bin/brew shellenv)"
+          file telegram-bot-api
+          # Expected: ELF 64-bit LSB executable, x86_64, ... statically linked
 
-      - name: Install Homebrew (x86_64)
-        if: (steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch') && matrix.arch == 'x86_64'
-        env:
-          HOMEBREW_NO_INSTALL_CLEANUP: 1
-          NONINTERACTIVE: 1
-        run: |
-          arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-          echo "/usr/local/bin:/usr/local/sbin" >> $GITHUB_PATH
-          eval "$(/usr/local/bin/brew shellenv)"
-
-      - name: Install dependencies (arm64)
-        if: (steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch') && matrix.arch == 'arm64'
-        run: |
-          eval "$(/opt/homebrew/bin/brew shellenv)"
-          brew install gperf cmake openssl@3 zlib
-
-      - name: Install dependencies (x86_64)
-        if: (steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch') && matrix.arch == 'x86_64'
-        run: |
-          eval "$(/usr/local/bin/brew shellenv)"
-          arch -x86_64 brew install gperf cmake openssl@3 zlib
-
-      - name: Clone and build telegram-bot-api
+      - name: Generate tag name
         if: steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch'
-        env:
-          ARCH: ${{ matrix.arch }}
-        run: |
-          if [ "$ARCH" = "arm64" ]; then
-            BREW_PREFIX="/opt/homebrew"
-            BINARY_NAME="telegram-bot-api-arm64"
-          else
-            BREW_PREFIX="/usr/local"
-            BINARY_NAME="telegram-bot-api-x86_64"
-          fi
-          OPENSSL_DIR="$BREW_PREFIX/opt/openssl@3"
-          ZLIB_DIR="$BREW_PREFIX/opt/zlib"
-          git clone --recursive https://github.com/tdlib/telegram-bot-api.git
-          cd telegram-bot-api
-          git checkout ${{ steps.check.outputs.commit_sha || 'master' }}
-          rm -rf build
-          mkdir build
-          cd build
-          if [ "$ARCH" = "x86_64" ]; then
-            eval "$(/usr/local/bin/brew shellenv)"
-            arch -x86_64 cmake -DCMAKE_BUILD_TYPE=Release \
-                                -DOPENSSL_ROOT_DIR=$OPENSSL_DIR \
-                                -DZLIB_ROOT=$ZLIB_DIR \
-                                -DOPENSSL_USE_STATIC_LIBS=ON \
-                                -DZLIB_USE_STATIC_LIBS=ON \
-                                -DSTATIC_BUILD=ON \
-                                -DCMAKE_EXE_LINKER_FLAGS="" \
-                                -DCMAKE_INSTALL_PREFIX:PATH=.. ..
-            arch -x86_64 cmake --build . --target install
-          else
-            eval "$(/opt/homebrew/bin/brew shellenv)"
-            cmake -DCMAKE_BUILD_TYPE=Release \
-                  -DOPENSSL_ROOT_DIR=$OPENSSL_DIR \
-                  -DZLIB_ROOT=$ZLIB_DIR \
-                  -DOPENSSL_USE_STATIC_LIBS=ON \
-                  -DZLIB_USE_STATIC_LIBS=ON \
-                  -DSTATIC_BUILD=ON \
-                  -DCMAKE_EXE_LINKER_FLAGS="" \
-                  -DCMAKE_INSTALL_PREFIX:PATH=.. ..
-            cmake --build . --target install
-          fi
-          cd ../..
-          mv telegram-bot-api/bin/telegram-bot-api telegram-bot-api/bin/$BINARY_NAME
-          ls -l telegram-bot-api/bin/$BINARY_NAME
-          file telegram-bot-api/bin/$BINARY_NAME
-          otool -L telegram-bot-api/bin/$BINARY_NAME
+        id: generate_tag
+        run: echo "TAG_NAME=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_OUTPUT
 
-      - name: Upload binary as artifact
+      - name: Create or update release
         if: steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: telegram-bot-api-${{ matrix.arch }}
-          path: telegram-bot-api/bin/telegram-bot-api-${{ matrix.arch }}
-
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Prepare binaries
-        run: |
-          mkdir -p binaries
-          mv artifacts/telegram-bot-api-arm64/telegram-bot-api-arm64 binaries/
-          mv artifacts/telegram-bot-api-x86_64/telegram-bot-api-x86_64 binaries/
-          ls -l binaries/
-
-      - name: Generate timestamp tag
-        id: timestamp
-        run: |
-          TIMESTAMP=$(date -u +'%Y-%m-%d-%H-%M-%S')
-          echo "Generated timestamp: $TIMESTAMP"
-          echo "tag=$TIMESTAMP" >> $GITHUB_OUTPUT
-
-      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.timestamp.outputs.tag }}
-          name: Release ${{ steps.timestamp.outputs.tag }} (Native macOS)
+          tag_name: ${{ steps.generate_tag.outputs.TAG_NAME }}
+          name: Release ${{ steps.generate_tag.outputs.TAG_NAME }}
           body: |
-            Native telegram-bot-api binaries for macOS (Apple Silicon and Intel), statically linked.
-
-            Built from upstream commit: `${{ steps.check.outputs.commit_sha || 'master' }}`
-
-            - `telegram-bot-api-arm64`: For Apple Silicon (M1/M2/M3+)
-            - `telegram-bot-api-x86_64`: For Intel Macs (also runs via Rosetta 2 on Apple Silicon)
-          files: |
-            binaries/telegram-bot-api-arm64
-            binaries/telegram-bot-api-x86_64
+            Statically linked telegram-bot-api binary for x86_64 Linux.
+            Built from upstream commit: ${{ steps.check.outputs.commit_sha || 'master' }}
+            Compatible with Linux kernels ≥3.2.0.
+          files: telegram-bot-api
           prerelease: false
           draft: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Notify on success
-        if: success()
+        if: success() && (steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch')
         run: |
-          echo "Successfully built and released statically linked telegram-bot-api binaries for macOS with tag ${{ steps.timestamp.outputs.tag }}"
+          echo "Successfully built and released telegram-bot-api binary (tag: ${{ steps.generate_tag.outputs.TAG_NAME }}) for commit ${{ steps.check.outputs.commit_sha || 'master' }}"
