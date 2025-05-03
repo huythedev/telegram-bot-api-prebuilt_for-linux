@@ -66,15 +66,20 @@ jobs:
           file telegram-bot-api
           # Expected: ELF 64-bit LSB executable, x86_64, ... statically linked
 
+      - name: Generate tag name
+        if: steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch'
+        id: generate_tag
+        run: echo "TAG_NAME=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_OUTPUT
+
       - name: Create or update release
         if: steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: latest
-          name: Latest telegram-bot-api Binary
+          tag_name: ${{ steps.generate_tag.outputs.TAG_NAME }}
+          name: Release ${{ steps.generate_tag.outputs.TAG_NAME }}
           body: |
             Statically linked telegram-bot-api binary for x86_64 Linux.
-            Built from commit: ${{ steps.check.outputs.commit_sha || 'master' }}
+            Built from upstream commit: ${{ steps.check.outputs.commit_sha || 'master' }}
             Compatible with Linux kernels ≥3.2.0.
           files: telegram-bot-api
           prerelease: false
@@ -85,4 +90,4 @@ jobs:
       - name: Notify on success
         if: success() && (steps.check.outputs.has_new_commit == 'true' || github.event_name == 'workflow_dispatch')
         run: |
-          echo "Successfully built and released telegram-bot-api binary for commit ${{ steps.check.outputs.commit_sha || 'master' }}"
+          echo "Successfully built and released telegram-bot-api binary (tag: ${{ steps.generate_tag.outputs.TAG_NAME }}) for commit ${{ steps.check.outputs.commit_sha || 'master' }}"
