@@ -110,7 +110,6 @@ jobs:
                                 -DOPENSSL_USE_STATIC_LIBS=ON \
                                 -DZLIB_USE_STATIC_LIBS=ON \
                                 -DSTATIC_BUILD=ON \
-                                -DCMAKE_EXE_LINKER_FLAGS="-static-libc++" \
                                 -DCMAKE_INSTALL_PREFIX:PATH=.. ..
             arch -x86_64 cmake --build . --target install
           else
@@ -121,7 +120,6 @@ jobs:
                   -DOPENSSL_USE_STATIC_LIBS=ON \
                   -DZLIB_USE_STATIC_LIBS=ON \
                   -DSTATIC_BUILD=ON \
-                  -DCMAKE_EXE_LINKER_FLAGS="-static-libc++" \
                   -DCMAKE_INSTALL_PREFIX:PATH=.. ..
             cmake --build . --target install
           fi
